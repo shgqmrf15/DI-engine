@@ -2,6 +2,7 @@ from typing import List, Dict, Any, Tuple
 from collections import namedtuple
 import copy
 import torch
+import treetensor.torch as ttorch
 
 from ding.torch_utils import Adam, to_device
 from ding.rl_utils import q_nstep_td_data, q_nstep_td_error, get_nstep_return_data, get_train_sample
@@ -147,32 +148,38 @@ class DQNPolicy(Policy):
             - necessary: ``cur_lr``, ``total_loss``, ``priority``
             - optional: ``action_distribution``
         """
-        data = default_preprocess_learn(
-            data,
-            use_priority=self._priority,
-            use_priority_IS_weight=self._cfg.priority_IS_weight,
-            ignore_done=self._cfg.learn.ignore_done,
-            use_nstep=True
-        )
+        data = [ttorch.tensor(d) for d in data]
+        data = ttorch.stack(data)
+        if self._cfg.learn.ignore_done:
+            data.done = ttorch.zeros_like(data.done).float()
+        else:
+            data.done = data.done.float()
+        if self._priority and self._cfg.priority_IS_weight:
+            data.weight = data.IS
+        else:
+            data.weight = None  # TODO
+        if len(data.reward.shape) == 1:
+            data.reward.unsqueeze_(1)
+        data.reward = data.reward.permute(1, 0).continuous()
         if self._cuda:
-            data = to_device(data, self._device)
+            data = data.cuda()
         # ====================
         # Q-learning forward
         # ====================
         self._learn_model.train()
         self._target_model.train()
         # Current q value (main model)
-        q_value = self._learn_model.forward(data['obs'])['logit']
+        q_value = self._learn_model.forward(data.obs)['logit']
         # Target q value
         with torch.no_grad():
-            target_q_value = self._target_model.forward(data['next_obs'])['logit']
+            target_q_value = self._target_model.forward(data.next_obs)['logit']
             # Max q value action (main model)
-            target_q_action = self._learn_model.forward(data['next_obs'])['action']
+            target_q_action = self._learn_model.forward(data.next_obs)['action']
 
         data_n = q_nstep_td_data(
-            q_value, target_q_value, data['action'], target_q_action, data['reward'], data['done'], data['weight']
+            q_value, target_q_value, data.action, target_q_action, data.reward, data.done, data.weight
         )
-        value_gamma = data.get('value_gamma')
+        value_gamma = data.value_gamma  # TODO
         loss, td_error_per_sample = q_nstep_td_error(data_n, self._gamma, nstep=self._nstep, value_gamma=value_gamma)
 
         # ====================

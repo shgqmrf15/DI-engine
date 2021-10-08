@@ -71,6 +71,8 @@ setup(
         'scipy',
         'trueskill',
         'h5py',
+        'typeguard',
+        'di-treetensor',
     ],
     extras_require={
         'test': [

@@ -1,6 +1,7 @@
 from typing import Union, Optional, Dict, Callable, List
 import torch
 import torch.nn as nn
+import treetensor.torch as ttorch
 
 from ding.torch_utils import get_lstm
 from ding.utils import MODEL_REGISTRY, SequenceType, squeeze
@@ -94,7 +95,7 @@ class DQN(nn.Module):
         """
         x = self.encoder(x)
         x = self.head(x)
-        return x
+        return ttorch.as_tensor(x)
 
 
 @MODEL_REGISTRY.register('c51dqn')

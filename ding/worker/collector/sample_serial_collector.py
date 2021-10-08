@@ -229,7 +229,7 @@ class SampleSerialCollector(ISerialCollector):
                 policy_output = self._policy.forward(obs, **policy_kwargs)
                 self._policy_output_pool.update(policy_output)
                 # Interact with env.
-                actions = {env_id: output['action'] for env_id, output in policy_output.items()}
+                actions = {env_id: output.action for env_id, output in policy_output.items()}
                 actions = to_ndarray(actions)
                 timesteps = self._env.step(actions)
 

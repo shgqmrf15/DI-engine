@@ -148,8 +148,11 @@ class DQNPolicy(Policy):
             - necessary: ``cur_lr``, ``total_loss``, ``priority``
             - optional: ``action_distribution``
         """
-        data = [ttorch.tensor(d) for d in data]
+        for d in data:
+            d['replay_unique_id'] = 0  # TODO
+        data = [ttorch.as_tensor(d) for d in data]
         data = ttorch.stack(data)
+        data.action.squeeze_(1)
         if self._cfg.learn.ignore_done:
             data.done = ttorch.zeros_like(data.done).float()
         else:
@@ -160,26 +163,26 @@ class DQNPolicy(Policy):
             data.weight = None  # TODO
         if len(data.reward.shape) == 1:
             data.reward.unsqueeze_(1)
-        data.reward = data.reward.permute(1, 0).continuous()
+        data.reward = data.reward.permute(1, 0)  # TODO .continuous()
         if self._cuda:
-            data = data.cuda()
+            data = data.cuda(self._device)
         # ====================
         # Q-learning forward
         # ====================
         self._learn_model.train()
         self._target_model.train()
         # Current q value (main model)
-        q_value = self._learn_model.forward(data.obs)['logit']
+        q_value = self._learn_model.forward(data.obs).logit
         # Target q value
         with torch.no_grad():
-            target_q_value = self._target_model.forward(data.next_obs)['logit']
+            target_q_value = self._target_model.forward(data.next_obs).logit
             # Max q value action (main model)
-            target_q_action = self._learn_model.forward(data.next_obs)['action']
+            target_q_action = self._learn_model.forward(data.next_obs).action
 
         data_n = q_nstep_td_data(
             q_value, target_q_value, data.action, target_q_action, data.reward, data.done, data.weight
         )
-        value_gamma = data.value_gamma  # TODO
+        value_gamma = None  # data.value_gamma  # TODO
         loss, td_error_per_sample = q_nstep_td_error(data_n, self._gamma, nstep=self._nstep, value_gamma=value_gamma)
 
         # ====================
@@ -259,15 +262,16 @@ class DQNPolicy(Policy):
             - necessary: ``logit``, ``action``
         """
         data_id = list(data.keys())
-        data = default_collate(list(data.values()))
+        data = [ttorch.as_tensor(item) for item in data.values()]
+        data = ttorch.stack(data)
         if self._cuda:
-            data = to_device(data, self._device)
+            data = data.cuda(self._device)
         self._collect_model.eval()
         with torch.no_grad():
             output = self._collect_model.forward(data, eps=eps)
         if self._cuda:
-            output = to_device(output, 'cpu')
-        output = default_decollate(output)
+            output = output.cpu()
+        output = ttorch.split(output, 1, 0)
         return {i: d for i, d in zip(data_id, output)}
 
     def _get_train_sample(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -306,7 +310,7 @@ class DQNPolicy(Policy):
         transition = {
             'obs': obs,
             'next_obs': timestep.obs,
-            'action': policy_output['action'],
+            'action': policy_output.action,
             'reward': timestep.reward,
             'done': timestep.done,
         }
@@ -336,15 +340,16 @@ class DQNPolicy(Policy):
             - necessary: ``action``
         """
         data_id = list(data.keys())
-        data = default_collate(list(data.values()))
+        data = [ttorch.as_tensor(item) for item in data.values()]
+        data = ttorch.stack(data)
         if self._cuda:
-            data = to_device(data, self._device)
+            data = data.cuda(self._device)
         self._eval_model.eval()
         with torch.no_grad():
             output = self._eval_model.forward(data)
         if self._cuda:
-            output = to_device(output, 'cpu')
-        output = default_decollate(output)
+            output = output.cpu()
+        output = ttorch.split(output, 1, 0)
         return {i: d for i, d in zip(data_id, output)}
 
     def default_model(self) -> Tuple[str, List[str]]:

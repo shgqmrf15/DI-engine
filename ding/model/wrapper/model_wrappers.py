@@ -1,10 +1,12 @@
 from typing import Any, Tuple, Callable, Optional, List
+from typeguard import check_type
 from abc import ABC
 
 import numpy as np
 import torch
 from ding.torch_utils import get_tensor_data
 from ding.rl_utils import create_noise_generator
+from ding.utils import NestedType
 from torch.distributions import Categorical
 
 
@@ -160,8 +162,8 @@ class ArgmaxSampleWrapper(IModelWrapper):
 
     def forward(self, *args, **kwargs):
         output = self._model.forward(*args, **kwargs)
-        assert isinstance(output, dict), "model output must be dict, but find {}".format(type(output))
-        logit = output['logit']
+        check_type('model output', output, NestedType)
+        logit = output.logit
         assert isinstance(logit, torch.Tensor) or isinstance(logit, list)
         if isinstance(logit, torch.Tensor):
             logit = [logit]
@@ -173,7 +175,7 @@ class ArgmaxSampleWrapper(IModelWrapper):
         action = [l.argmax(dim=-1) for l in logit]
         if len(action) == 1:
             action, logit = action[0], logit[0]
-        output['action'] = action
+        output.action = action
         return output
 
 
@@ -215,13 +217,13 @@ class EpsGreedySampleWrapper(IModelWrapper):
     def forward(self, *args, **kwargs):
         eps = kwargs.pop('eps')
         output = self._model.forward(*args, **kwargs)
-        assert isinstance(output, dict), "model output must be dict, but find {}".format(type(output))
-        logit = output['logit']
+        check_type("model output", output, NestedType)
+        logit = output.logit
         assert isinstance(logit, torch.Tensor) or isinstance(logit, list)
         if isinstance(logit, torch.Tensor):
             logit = [logit]
         if 'action_mask' in output:
-            mask = output['action_mask']
+            mask = output.action_mask
             if isinstance(mask, torch.Tensor):
                 mask = [mask]
             logit = [l.sub_(1e8 * (1 - m)) for l, m in zip(logit, mask)]
@@ -238,7 +240,7 @@ class EpsGreedySampleWrapper(IModelWrapper):
                     action.append(torch.randint(0, l.shape[-1], size=l.shape[:-1]))
         if len(action) == 1:
             action, logit = action[0], logit[0]
-        output['action'] = action
+        output.action = action
         return output
 
 

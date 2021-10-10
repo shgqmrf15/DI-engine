@@ -1,16 +1,15 @@
-from typing import List, Dict, Any, Tuple
-from collections import namedtuple
 import copy
+from collections import namedtuple
+from typing import List, Dict, Any, Tuple
+
 import torch
 import treetensor.torch as ttorch
 
-from ding.torch_utils import Adam, to_device
-from ding.rl_utils import q_nstep_td_data, q_nstep_td_error, get_nstep_return_data, get_train_sample
 from ding.model import model_wrap
+from ding.rl_utils import q_nstep_td_data, q_nstep_td_error, get_nstep_return_data, get_train_sample
+from ding.torch_utils import Adam
 from ding.utils import POLICY_REGISTRY
-from ding.utils.data import default_collate, default_decollate
 from .base_policy import Policy
-from .common_utils import default_preprocess_learn
 
 
 @POLICY_REGISTRY.register('dqn')
@@ -150,7 +149,7 @@ class DQNPolicy(Policy):
         """
         for d in data:
             d['replay_unique_id'] = 0  # TODO
-        data = [ttorch.as_tensor(d) for d in data]
+        data = [ttorch.Tensor(d) for d in data]
         data = ttorch.stack(data)
         data.action.squeeze_(1)
         if self._cfg.learn.ignore_done:
@@ -262,7 +261,7 @@ class DQNPolicy(Policy):
             - necessary: ``logit``, ``action``
         """
         data_id = list(data.keys())
-        data = [ttorch.as_tensor(item) for item in data.values()]
+        data = [ttorch.Tensor(item) for item in data.values()]
         data = ttorch.stack(data)
         if self._cuda:
             data = data.cuda(self._device)
@@ -340,7 +339,7 @@ class DQNPolicy(Policy):
             - necessary: ``action``
         """
         data_id = list(data.keys())
-        data = [ttorch.as_tensor(item) for item in data.values()]
+        data = [ttorch.Tensor(item) for item in data.values()]
         data = ttorch.stack(data)
         if self._cuda:
             data = data.cuda(self._device)

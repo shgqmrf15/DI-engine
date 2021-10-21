@@ -320,12 +320,12 @@ class ActionNoiseWrapper(IModelWrapper):
 
     def forward(self, *args, **kwargs):
         output = self._model.forward(*args, **kwargs)
-        assert isinstance(output, dict), "model output must be dict, but find {}".format(type(output))
+        check_type('model output', output, NestedType)
         if 'action' in output:
-            action = output['action']
+            action = output.action
             assert isinstance(action, torch.Tensor)
             action = self.add_noise(action)
-            output['action'] = action
+            output.action = action
         return output
 
     def add_noise(self, action: torch.Tensor) -> torch.Tensor:

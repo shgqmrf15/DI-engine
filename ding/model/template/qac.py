@@ -1,6 +1,7 @@
 from typing import Union, Dict, Optional
 import torch
 import torch.nn as nn
+import treetensor.torch as ttorch
 
 from ding.utils import SequenceType, squeeze, MODEL_REGISTRY
 from ..common import RegressionHead, ReparameterizationHead
@@ -208,7 +209,7 @@ class QAC(nn.Module):
         """
         x = self.actor(inputs)
         if self.actor_head_type == 'regression':
-            return {'action': x['pred']}
+            return ttorch.as_tensor({'action': x['pred']})
         elif self.actor_head_type == 'reparameterization':
             return {'logit': [x['mu'], x['sigma']]}
 
@@ -238,7 +239,7 @@ class QAC(nn.Module):
 
         """
 
-        obs, action = inputs['obs'], inputs['action']
+        obs, action = inputs.obs, inputs.action
         assert len(obs.shape) == 2
         if len(action.shape) == 1:  # (B, ) -> (B, 1)
             action = action.unsqueeze(1)
@@ -247,4 +248,4 @@ class QAC(nn.Module):
             x = [m(x)['pred'] for m in self.critic]
         else:
             x = self.critic(x)['pred']
-        return {'q_value': x}
+        return ttorch.as_tensor({'q_value': x})

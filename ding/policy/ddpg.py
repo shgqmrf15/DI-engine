@@ -1,7 +1,8 @@
 from typing import List, Dict, Any, Tuple, Union
 from collections import namedtuple
-import torch
 import copy
+import torch
+import treetensor.torch as ttorch
 
 from ding.torch_utils import Adam, to_device
 from ding.rl_utils import v_1step_td_data, v_1step_td_error, get_train_sample
@@ -195,27 +196,34 @@ class DDPGPolicy(Policy):
         Returns:
             - info_dict (:obj:`Dict[str, Any]`): Including at least actor and critic lr, different losses.
         """
-        loss_dict = {}
-        data = default_preprocess_learn(
-            data,
-            use_priority=self._cfg.priority,
-            use_priority_IS_weight=self._cfg.priority_IS_weight,
-            ignore_done=self._cfg.learn.ignore_done,
-            use_nstep=False
-        )
+        for d in data:
+            d['replay_unique_id'] = 0  # TODO
+        data = [ttorch.as_tensor(d) for d in data]
+        data = ttorch.stack(data)
+        data.action = data.action.float()  # TODO
+        data.reward = data.reward.squeeze(1)
+        if self._cfg.learn.ignore_done:
+            data.done = ttorch.zeros_like(data.done).float()
+        else:
+            data.done = data.done.float()
+        if self._priority and self._cfg.priority_IS_weight:
+            data.weight = data.IS
+        else:
+            data.weight = None  # TODO
         if self._cuda:
-            data = to_device(data, self._device)
+            data = data.cuda(self._device)
         # ====================
         # critic learn forward
         # ====================
         self._learn_model.train()
         self._target_model.train()
-        next_obs = data.get('next_obs')
-        reward = data.get('reward')
+        loss_dict = {}
+        next_obs = data.next_obs
+        reward = data.reward
         if self._use_reward_batch_norm:
             reward = (reward - reward.mean()) / (reward.std() + 1e-8)
         # current q value
-        q_value = self._learn_model.forward(data, mode='compute_critic')['q_value']
+        q_value = self._learn_model.forward(data, mode='compute_critic').q_value
         q_value_dict = {}
         if self._twin_critic:
             q_value_dict['q_value'] = q_value[0].mean()
@@ -224,24 +232,24 @@ class DDPGPolicy(Policy):
             q_value_dict['q_value'] = q_value.mean()
         # target q value. SARSA: first predict next action, then calculate next q value
         with torch.no_grad():
-            next_action = self._target_model.forward(next_obs, mode='compute_actor')['action']
-            next_data = {'obs': next_obs, 'action': next_action}
-            target_q_value = self._target_model.forward(next_data, mode='compute_critic')['q_value']
+            next_action = self._target_model.forward(next_obs, mode='compute_actor').action
+            next_data = ttorch.as_tensor({'obs': next_obs, 'action': next_action})
+            target_q_value = self._target_model.forward(next_data, mode='compute_critic').q_value
         if self._twin_critic:
             # TD3: two critic networks
             target_q_value = torch.min(target_q_value[0], target_q_value[1])  # find min one as target q value
             # network1
-            td_data = v_1step_td_data(q_value[0], target_q_value, reward, data['done'], data['weight'])
+            td_data = v_1step_td_data(q_value[0], target_q_value, reward, data.done, data.weight)
             critic_loss, td_error_per_sample1 = v_1step_td_error(td_data, self._gamma)
             loss_dict['critic_loss'] = critic_loss
             # network2(twin network)
-            td_data_twin = v_1step_td_data(q_value[1], target_q_value, reward, data['done'], data['weight'])
+            td_data_twin = v_1step_td_data(q_value[1], target_q_value, reward, data.done, data.weight)
             critic_twin_loss, td_error_per_sample2 = v_1step_td_error(td_data_twin, self._gamma)
             loss_dict['critic_twin_loss'] = critic_twin_loss
             td_error_per_sample = (td_error_per_sample1 + td_error_per_sample2) / 2
         else:
             # DDPG: single critic network
-            td_data = v_1step_td_data(q_value, target_q_value, reward, data['done'], data['weight'])
+            td_data = v_1step_td_data(q_value, target_q_value, reward, data.done, data.weight)
             critic_loss, td_error_per_sample = v_1step_td_error(td_data, self._gamma)
             loss_dict['critic_loss'] = critic_loss
         # ================
@@ -257,12 +265,12 @@ class DDPGPolicy(Policy):
         # ===============================
         # actor updates every ``self._actor_update_freq`` iters
         if (self._forward_learn_cnt + 1) % self._actor_update_freq == 0:
-            actor_data = self._learn_model.forward(data['obs'], mode='compute_actor')
-            actor_data['obs'] = data['obs']
+            actor_data = self._learn_model.forward(data.obs, mode='compute_actor')
+            actor_data.obs = data.obs
             if self._twin_critic:
-                actor_loss = -self._learn_model.forward(actor_data, mode='compute_critic')['q_value'][0].mean()
+                actor_loss = -self._learn_model.forward(actor_data, mode='compute_critic').q_value[0].mean()
             else:
-                actor_loss = -self._learn_model.forward(actor_data, mode='compute_critic')['q_value'].mean()
+                actor_loss = -self._learn_model.forward(actor_data, mode='compute_critic').q_value.mean()
 
             loss_dict['actor_loss'] = actor_loss
             # actor update
@@ -279,7 +287,7 @@ class DDPGPolicy(Policy):
             'cur_lr_actor': self._optimizer_actor.defaults['lr'],
             'cur_lr_critic': self._optimizer_critic.defaults['lr'],
             # 'q_value': np.array(q_value).mean(),
-            'action': data.get('action').mean(),
+            'action': data.action.mean(),
             'priority': td_error_per_sample.abs().tolist(),
             **loss_dict,
             **q_value_dict,
@@ -327,24 +335,27 @@ class DDPGPolicy(Policy):
             - output (:obj:`dict`): Dict type data, including at least inferred action according to input obs.
         """
         data_id = list(data.keys())
-        data = default_collate(list(data.values()))
+        data = [ttorch.as_tensor(item) for item in data.values()]
+        data = ttorch.stack(data)
         if self._cuda:
-            data = to_device(data, self._device)
+            data = data.cuda(self._device)
         self._collect_model.eval()
         with torch.no_grad():
             output = self._collect_model.forward(data, mode='compute_actor')
         if self._cuda:
             output = to_device(output, 'cpu')
-        output = default_decollate(output)
+        if self._cuda:
+            output = output.cpu()
+        output = ttorch.split(output, 1, 0)
         return {i: d for i, d in zip(data_id, output)}
 
-    def _process_transition(self, obs: Any, model_output: dict, timestep: namedtuple) -> Dict[str, Any]:
+    def _process_transition(self, obs: Any, policy_output: dict, timestep: namedtuple) -> Dict[str, Any]:
         r"""
         Overview:
             Generate dict type transition data from inputs.
         Arguments:
             - obs (:obj:`Any`): Env observation
-            - model_output (:obj:`dict`): Output of collect model, including at least ['action']
+            - policy_output (:obj:`dict`): Output of policy collect model, including at least ['action']
             - timestep (:obj:`namedtuple`): Output after env step, including at least ['obs', 'reward', 'done'] \
                 (here 'obs' indicates obs after env step, i.e. next_obs).
         Return:
@@ -353,7 +364,7 @@ class DDPGPolicy(Policy):
         transition = {
             'obs': obs,
             'next_obs': timestep.obs,
-            'action': model_output['action'],
+            'action': policy_output.action,
             'reward': timestep.reward,
             'done': timestep.done,
         }
@@ -381,15 +392,16 @@ class DDPGPolicy(Policy):
             - output (:obj:`dict`): Dict type data, including at least inferred action according to input obs.
         """
         data_id = list(data.keys())
-        data = default_collate(list(data.values()))
+        data = [ttorch.as_tensor(item) for item in data.values()]
+        data = ttorch.stack(data)
         if self._cuda:
-            data = to_device(data, self._device)
+            data = data.cuda(self._device)
         self._eval_model.eval()
         with torch.no_grad():
             output = self._eval_model.forward(data, mode='compute_actor')
         if self._cuda:
-            output = to_device(output, 'cpu')
-        output = default_decollate(output)
+            output = output.cpu()
+        output = ttorch.split(output, 1, 0)
         return {i: d for i, d in zip(data_id, output)}
 
     def default_model(self) -> Tuple[str, List[str]]:

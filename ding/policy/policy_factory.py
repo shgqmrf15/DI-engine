@@ -1,6 +1,7 @@
 from typing import Dict, Any, Callable
 from collections import namedtuple
 import numpy as np
+import treetensor.torch as ttorch
 
 from ding.torch_utils import to_device
 
@@ -56,10 +57,12 @@ class PolicyFactory:
             for env_id in data:
                 # For continuous env, action is limited in [-1, 1] for model output.
                 # Env would scale it to its original action range.
-                actions[env_id] = {
-                    'action': discrete_random_action(min, max, shape)
-                    if discrete else continuous_random_action(-1, 1, shape)
-                }
+                actions[env_id] = ttorch.as_tensor(
+                    {
+                        'action': discrete_random_action(min, max, shape)
+                        if discrete else continuous_random_action(-1, 1, shape)
+                    }
+                )
             return actions
 
         def reset(*args, **kwargs) -> None:

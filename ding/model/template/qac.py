@@ -249,7 +249,7 @@ class QAC(nn.Module):
         """
         if self.actor_head_type == 'regression':
             x = self.actor(inputs)
-            return ttorch.as_tensor({'action': x['pred']})
+            return ttorch.Tensor({'action': x['pred']})
         elif self.actor_head_type == 'reparameterization':
             x = self.actor(inputs)
             return {'logit': [x['mu'], x['sigma']]}
@@ -306,4 +306,4 @@ class QAC(nn.Module):
             x = [m(x)['pred'] for m in self.critic]
         else:
             x = self.critic(x)['pred']
-        return ttorch.as_tensor({'q_value': x})
+        return ttorch.Tensor({'q_value': x})

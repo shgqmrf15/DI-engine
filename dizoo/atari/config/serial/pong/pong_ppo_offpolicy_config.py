@@ -3,9 +3,10 @@ from ding.entry import serial_pipeline
 from easydict import EasyDict
 
 pong_ppo_config = dict(
+    exp_name='ppo_offpolicy_pong',
     env=dict(
         collector_env_num=16,
-        evaluator_env_num=4,
+        evaluator_env_num=8,
         n_evaluator_episode=8,
         stop_value=20,
         env_id='PongNoFrameskip-v4',
@@ -14,8 +15,7 @@ pong_ppo_config = dict(
     ),
     policy=dict(
         cuda=True,
-        on_policy=False,
-        # (bool) whether use on-policy training pipeline(behaviour policy and training policy are the same)
+        random_collect_size=2048,
         model=dict(
             obs_shape=[4, 84, 84],
             action_shape=6,
@@ -32,7 +32,7 @@ pong_ppo_config = dict(
             # (float) loss weight of the value network, the weight of policy network is set to 1
             value_weight=0.5,
             # (float) loss weight of the entropy regularization, the weight of policy network is set to 1
-            entropy_weight=0.015,
+            entropy_weight=0.01,
             clip_ratio=0.1,
         ),
         collect=dict(
@@ -45,7 +45,7 @@ pong_ppo_config = dict(
         eval=dict(evaluator=dict(eval_freq=1000, )),
         other=dict(replay_buffer=dict(
             replay_buffer_size=100000,
-            max_use=3,
+            max_use=5,
         ), ),
     ),
 )
@@ -56,7 +56,8 @@ pong_ppo_create_config = dict(
         type='atari',
         import_names=['dizoo.atari.envs.atari_env'],
     ),
-    env_manager=dict(type='subprocess'),
+    # env_manager=dict(type='subprocess'),
+    env_manager=dict(type='base'),
     policy=dict(type='ppo_offpolicy'),
 )
 create_config = EasyDict(pong_ppo_create_config)

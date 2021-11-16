@@ -1,4 +1,5 @@
 from typing import Union, Optional, Dict, Callable, List
+
 import torch
 import torch.nn as nn
 import treetensor.torch as ttorch
@@ -95,7 +96,7 @@ class DQN(nn.Module):
         """
         x = self.encoder(x)
         x = self.head(x)
-        return ttorch.as_tensor(x)
+        return ttorch.Tensor(x)
 
 
 @MODEL_REGISTRY.register('c51dqn')

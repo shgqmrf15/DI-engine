@@ -3,6 +3,7 @@ from ding.rl_utils import get_epsilon_greedy_fn
 from .base_policy import CommandModePolicy
 
 from .dqn import DQNPolicy
+from .siql import SIQLPolicy, IQLPolicy
 from .c51 import C51Policy
 from .qrdqn import QRDQNPolicy
 from .iqn import IQNPolicy
@@ -87,6 +88,16 @@ class DummyCommandModePolicy(CommandModePolicy):
 
 @POLICY_REGISTRY.register('dqn_command')
 class DQNCommandModePolicy(DQNPolicy, EpsCommandModePolicy):
+    pass
+
+
+@POLICY_REGISTRY.register('iql_command')
+class IQLCommandModePolicy(IQLPolicy, EpsCommandModePolicy):
+    pass
+
+
+@POLICY_REGISTRY.register('siql_command')
+class SIQLCommandModePolicy(SIQLPolicy, EpsCommandModePolicy):
     pass
 
 
